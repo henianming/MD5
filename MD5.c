@@ -1,9 +1,11 @@
 #include "MD5.h"
 
+int const DATA_GROUP_SIZE = 64;
+
 unsigned int const S[] = {
 	7, 12, 17, 22,
 	5, 9, 14, 20,
-	4, 11, 16,23,
+	4, 11, 16, 23,
 	6, 10, 15, 21
 };
 
@@ -82,11 +84,11 @@ int IsLittleEndian() {
 	return (*(unsigned char*)(&i) == 0x00);
 }
 
-char* FillBuf(char const *in, size_t inLen) {
+size_t FillBuf(char const **out, char const *in, size_t inLen) {
 	int i;
 	int j;
-	int bLittleEndian = IsLittleEndian();
 
+	size_t bitLen = inLen * 8;
 	size_t fillLen = 64 - (inLen - 56) % 64;
 	size_t filledLen = inLen + fillLen + 8;
 
@@ -96,17 +98,18 @@ char* FillBuf(char const *in, size_t inLen) {
 	outBuf[inLen] = 0x80;
 
 	j = sizeof(inLen);
-	if (bLittleEndian) {
+	if (IsLittleEndian()) {
 		for (i = 0; i < j; i++) {
-			memcpy(outBuf + filledLen - 8 + i, (char*)(&inLen) + i, 1);
+			memcpy(outBuf + filledLen - 8 + i, (char*)(&bitLen) + i, 1);
 		}
 	} else {
 		for (i = 0; i < j; i++) {
-			memcpy(outBuf + filledLen - 8 + i, (char*)(&inLen) + j - i - 1, 1);
+			memcpy(outBuf + filledLen - 8 + i, (char*)(&bitLen) + j - i - 1, 1);
 		}
 	}
 
-	return outBuf;
+	*out = outBuf;
+	return filledLen;
 }
 
 void SetABCD(unsigned int *A, unsigned int *B, unsigned int *C, unsigned int *D) {
@@ -123,28 +126,41 @@ void SetABCD(unsigned int *A, unsigned int *B, unsigned int *C, unsigned int *D)
 	memcpy(D, data + 12, 4);
 }
 
+void SetM(unsigned char *out, unsigned char const *in) {
+	int i, j;
+
+	if (IsLittleEndian()) {
+		memcpy(out, in, DATA_GROUP_SIZE);
+	} else {
+		for (i = 0; i < DATA_GROUP_SIZE / 4; i++) {
+			for (j = 0; j < 4; j++) {
+				memcpy(out + i * 4 + j, in + i * 4 + 3 - j, 4);
+			}
+		}
+	}
+}
+
 void GetMD5(char *out, char const *in, size_t inLen) {
-	int const DATA_GROUP_SIZE = 64;	
 	unsigned int i;
-	int j;
+	size_t filledLen;
+	char *filledData;
 	unsigned int A, B, C, D;
 	unsigned int *M = (unsigned int*)malloc(DATA_GROUP_SIZE);
 
-	char *aa = FillBuf(in, inLen);
+	filledLen = FillBuf(&filledData, in, inLen);
 
 	SetABCD(&A, &B, &C, &D);
-	
-	for (i = 0; i < inLen; i++) {
-		if (!IsLittleEndian()) {
-			memcpy(M, in, DATA_GROUP_SIZE);
-		} else {
-			for (j = 0; j < DATA_GROUP_SIZE; j++) {
-				memcpy((char*)M + j, in + DATA_GROUP_SIZE * i + DATA_GROUP_SIZE - 1 - j, 1);
-			}
-		}
+
+	for (i = 0; i < filledLen / DATA_GROUP_SIZE; i++) {
+		SetM(M, filledData + i * 64);
+
 		dataOperation(&A, &B, &C, &D, M);
 	}
 
+	printf("%0X%0X%0X%0X", A, B, C, D);
+
 	free(M);
 	M = NULL;
+	free(filledData);
+	filledData = NULL;
 }
